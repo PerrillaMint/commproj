@@ -2,284 +2,230 @@
 #include <iomanip>
 #include <memory>
 #include <pthread.h>
+#include <sched.h>
 #include "Aircraft.h"
 #include "ATCTimer.h"
-
-
-//Coen320_Lab (Task0): Radar Channel name should contain your group name
-#define Radar "AH_40247851_40228573_Radar" //attach point for AirTrafficControl
-/*#define Display_ID "display" //attach point for AirTrafficControl // It is for future use*/
 
 void* updatePositionThread(void* arg) {
     Aircraft* aircraft = static_cast<Aircraft*>(arg);
     return reinterpret_cast<void*>(aircraft->updatePosition());
 }
 
-// Constructor definition
+// Constructor
 Aircraft::Aircraft(int id, double x, double y, double z, double sx, double sy, double sz, int t)
     : id(id), posX(x), posY(y), posZ(z), speedX(sx), speedY(sy), speedZ(sz), arrivalTime(t), inAirspace(true) {
-	message_id = -1;
-	Radar_id = -1;
-	airspace = {0, 100000, 0, 100000, 15000, 40000};
-	// Coen320_lab3(Task1): You need to create a thread worker
-	// Worker function: updatePositionThread
-	// Worker function parameters: (void*)this
-	// Thread handler id: thread_id
-	//Note: you need to verify if thread creation successfully done, otherwise print the error
+    messageId = -1;
+    radarConnectionId = -1;
+    airspace = {0, 100000, 0, 100000, 15000, 40000};
 
-	if (pthread_create(&thread_id, NULL, updatePositionThread, (void*)this) != 0){
-		std::cerr << "Error: failed to create thread for aircraft" << id << std::endl;
-		exit(EXIT_FAILURE);
-	}
+    // Create aircraft thread with real-time scheduling
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
+    pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
+
+    struct sched_param param;
+    param.sched_priority = 10; // Base priority for aircraft threads
+    pthread_attr_setschedparam(&attr, &param);
+
+    if (pthread_create(&threadId, &attr, updatePositionThread, (void*)this) != 0) {
+        // Fallback: try without explicit scheduling attributes
+        if (pthread_create(&threadId, NULL, updatePositionThread, (void*)this) != 0) {
+            std::cerr << "Error: failed to create thread for aircraft " << id << std::endl;
+            exit(EXIT_FAILURE);
+        }
+    }
+    pthread_attr_destroy(&attr);
 }
 
-Aircraft::~Aircraft(){};
+Aircraft::~Aircraft() {}
 
-//Print current Aircraft data
 void Aircraft::printInitialAircraftData() const {
-    std::cout << std::left 	<< std::setw(5) << id
-    						<< std::setw(5) << arrivalTime
-							<< std::setw(5) << posX
-							<< std::setw(5) << posY
-							<< std::setw(5) << posZ
-							<< std::setw(5) << speedX
-							<< std::setw(5) << speedY
-							<< std::setw(5) << speedZ
-							<< "\n";
+    std::cout << std::left << std::setw(5) << id
+              << std::setw(5) << arrivalTime
+              << std::setw(5) << posX
+              << std::setw(5) << posY
+              << std::setw(5) << posZ
+              << std::setw(5) << speedX
+              << std::setw(5) << speedY
+              << std::setw(5) << speedZ
+              << "\n";
 }
 
-
-void Aircraft::changeHeading(double Vx, double Vy, double Vz){
-	// FIXED: Original code had bugs checking Vx three times
-	if (Vx != 0) speedX = Vx;
-	if (Vy != 0) speedY = Vy;
-	if (Vz != 0) speedZ = Vz;
-	std::cout << "Aircraft " << id << " heading changed to: VX=" << speedX
-	          << " VY=" << speedY << " VZ=" << speedZ << "\n";
+void Aircraft::changeHeading(double vx, double vy, double vz) {
+    if (vx != 0) speedX = vx;
+    if (vy != 0) speedY = vy;
+    if (vz != 0) speedZ = vz;
+    std::cout << "Aircraft " << id << " heading changed to: VX=" << speedX
+              << " VY=" << speedY << " VZ=" << speedZ << "\n";
 }
-
 
 int Aircraft::updatePosition() {
     ATCTimer timer(1, 0);
-    int currentTime = 0;  // Variable to track current time
+    int currentTime = 0;
 
     // Wait until the arrival time has passed
     while (currentTime < arrivalTime) {
-        timer.waitTimer();  // Wait for 1 second
+        timer.waitTimer();
         ++currentTime;
     }
 
-    //********SEND ENTER AIRSPACE TO RADAR**************
-    //Coen320_Lab3(Task5): We are using message passing. Learn how to open a channel with Radar module
-    // Open channel with radar and verify if the channel opened successfully
-    //Use the function name_open with the radar channel name and parameter 0
+    // Open channel with Radar
+    if ((radarConnectionId = name_open(RADAR_CHANNEL_NAME, 0)) == -1) {
+        perror("Error occurred while creating the channel with Radar");
+        return EXIT_FAILURE;
+    }
 
-    if ((Radar_id = name_open(Radar, 0)) == -1) {
-		perror("Error occurred while creating the channel with Radar");
-		return EXIT_FAILURE;
-	}
+    // Send ENTER_AIRSPACE message to Radar
+    Message enterMsg = createEnterAirspaceMessage(id);
+    if (MsgSend(radarConnectionId, &enterMsg, sizeof(enterMsg), 0, 0) == -1) {
+        std::cout << "Failed to send enter message to Radar!\n";
+        return EXIT_FAILURE;
+    }
 
-    //Coen320_Lab3(Task6): Once the arrival time is reached, send the ENTER_AIRSPACE message
-    //Read and learn how we create a message
-    Message enterAirspaceMessage = createEnterAirspaceMessage(id);
+    // Create channel for this aircraft to be reachable by Radar and CommunicationsSystem
+    std::string channelName = std::string(AIRCRAFT_CHANNEL_PREFIX) + std::to_string(id);
+    name_attach_t* planeChannel = name_attach(NULL, channelName.c_str(), 0);
 
-    // Send message
-    //Coen320_Lab3(Task7): send the message Using the MsgSend function to Rader_id channel
-    //Parameters:
-    //Channel ID (e.g. Radar_id)
-    //Message address
-    // size of the message
-    //Respond Message address (put zero)
-    //Respond Message size (put zero)
-    //For more information use ctrl+space
-    //answer: MsgSend(Radar_id, &createEnterAirspaceMessage, sizeof(createEnterAirspaceMessage),0,0)
-
-    if (MsgSend(Radar_id, &enterAirspaceMessage, sizeof(enterAirspaceMessage),0,0) == -1) {
-            std::cout << "Failed to send enter message to Radar!\n";
-            return EXIT_FAILURE;
-	}
-
-    //********SEND UPDATE POSITION TO RADAR**************
-    //Coen320_Lab (Task0): Create channel to be reachable by radar that wants to poll the Airplane
-    //To chose the polling channel concatenate your group name with the plane id
-    //Note: It is critical to not interfere other groups
-    std::string id_str = "AH_40247851_40228573_"+std::to_string(id);  // Convert integer id to string
-    const char* ID = id_str.c_str();         // Convert string to const char*
-    name_attach_t* Plane_channel = name_attach(NULL, ID, 0); // For server
-
-    if (Plane_channel == NULL) {
-        std::cerr << "Could not attach plane ID: " << ID << " to channel\n";
+    if (planeChannel == NULL) {
+        std::cerr << "Could not attach plane ID: " << channelName << " to channel\n";
         return EXIT_FAILURE;
     }
 
     std::cout << "Aircraft " << id << " channel created and listening\n";
 
-    // Start the position update loop
+    // Position update loop
     while (true) {
-        // Update position based on velocity
         posX += speedX;
         posY += speedY;
         posZ += speedZ;
 
-        // Debug: Print the new position choose which plane by changing the id
-       /* if (id == 2){
-        std::cout << "Updated Position: (" << posX << ", " << posY << ", " << posZ << ")\n";
-        }*/
         // Check if the plane is still within airspace boundaries
         if (posX < airspace.lower_x_boundary || posX > airspace.upper_x_boundary ||
             posY < airspace.lower_y_boundary || posY > airspace.upper_y_boundary ||
             posZ < airspace.lower_z_boundary || posZ > airspace.upper_z_boundary) {
-            // Send exit airspace message and exit loop if out of bounds
+
             std::cout << "Aircraft " << id << " exiting airspace\n";
-            Message exitAirspaceMessage = createExitAirspaceMessage(id);
-            if (MsgSend(Radar_id, &exitAirspaceMessage, sizeof(exitAirspaceMessage), 0, 0) == -1) {
+            Message exitMsg = createExitAirspaceMessage(id);
+            if (MsgSend(radarConnectionId, &exitMsg, sizeof(exitMsg), 0, 0) == -1) {
                 std::cout << "Failed to send exit message to Radar!\n";
                 return EXIT_FAILURE;
             }
-            break;  // Exit the loop if out of bounds
+            break;
         }
 
-        // Check for incoming position update requests from Radar
-        char buffer[sizeof(Message_inter_process)];  // Buffer to handle largest message size
-        int rcvid = MsgReceive(Plane_channel->chid, buffer, sizeof(buffer), NULL);
+        // Listen for incoming requests
+        char buffer[sizeof(Message_inter_process)];
+        int rcvid = MsgReceive(planeChannel->chid, buffer, sizeof(buffer), NULL);
 
         if (rcvid != -1) {
-            // Determine message type by checking the MessageType field and recast
             Message* baseMsg = reinterpret_cast<Message*>(buffer);
-
             MessageType msgType = baseMsg->type;
             int typeValue = static_cast<int>(msgType);
 
-            // Valid MessageType enum values are 0-10 so anyhting else is an error
-            // If we get  data (like 223) it's from Radar which doesn't properly connect it means
-            // REQUEST_POSITION (3) is always from Radar
-            // Types 4-10 are from Communications System and are our operator commands we input
+            // Valid MessageType enum values are 0-10
+            // REQUEST_POSITION (3) is from Radar
+            // Types 4-6 are from Communications System (operator commands)
             bool isValidType = (typeValue >= 0 && typeValue <= 10);
-            bool isInterProcess = isValidType && (msgType != MessageType::REQUEST_POSITION);
+            bool isFromCommsSystem = isValidType && (msgType != MessageType::REQUEST_POSITION);
 
+            if (isFromCommsSystem) {
+                Message_inter_process* receivedMsg = reinterpret_cast<Message_inter_process*>(buffer);
 
-            if (isInterProcess){  // if its from Communications System
-            	// Recast it to be of type Message_inter_process
-            	Message_inter_process* receivedMsg = reinterpret_cast<Message_inter_process*>(buffer);
+                std::cout << "Aircraft " << id << " received inter-process message, type: "
+                          << static_cast<int>(receivedMsg->type) << "\n";
 
-            	// Debug
-            	std::cout << "Aircraft " << id << " received inter-process message, type: "<< static_cast<int>(receivedMsg->type) << "\n";
-
-            	// COEN320 Lab 4_5: Handle different message types from Communications System
                 switch (receivedMsg->type) {
                     case MessageType::REQUEST_CHANGE_OF_HEADING: {
-                        msg_change_heading* heading_data = reinterpret_cast<msg_change_heading*>(receivedMsg->data.data());
+                        msg_change_heading* headingData = reinterpret_cast<msg_change_heading*>(receivedMsg->data.data());
                         std::cout << "Aircraft " << id << " received heading change command\n";
-                        std::cout << "  New velocities: VX=" << heading_data->VelocityX
-                                  << " VY=" << heading_data->VelocityY
-                                  << " VZ=" << heading_data->VelocityZ << "\n";
-
-                        // Apply the heading change
-                        changeHeading(heading_data->VelocityX, heading_data->VelocityY, heading_data->VelocityZ);
-
-                        // Reply to acknowledge
+                        std::cout << "  New velocities: VX=" << headingData->velocityX
+                                  << " VY=" << headingData->velocityY
+                                  << " VZ=" << headingData->velocityZ << "\n";
+                        changeHeading(headingData->velocityX, headingData->velocityY, headingData->velocityZ);
                         MsgReply(rcvid, 0, NULL, 0);
                         break;
                     }
 
                     case MessageType::REQUEST_CHANGE_POSITION: {
-                        msg_change_position* pos_data = reinterpret_cast<msg_change_position*>(receivedMsg->data.data());
+                        msg_change_position* posData = reinterpret_cast<msg_change_position*>(receivedMsg->data.data());
                         std::cout << "Aircraft " << id << " received position change command\n";
-                        std::cout << "  New position: X=" << pos_data->x
-                                  << " Y=" << pos_data->y
-                                  << " Z=" << pos_data->z << "\n";
-
-                        // Apply the position change
-                        posX = pos_data->x;
-                        posY = pos_data->y;
-                        posZ = pos_data->z;
-
+                        std::cout << "  New position: X=" << posData->x
+                                  << " Y=" << posData->y
+                                  << " Z=" << posData->z << "\n";
+                        posX = posData->x;
+                        posY = posData->y;
+                        posZ = posData->z;
                         std::cout << "Aircraft " << id << " position updated\n";
-
-                        // Reply to acknowledge
                         MsgReply(rcvid, 0, NULL, 0);
                         break;
                     }
 
                     case MessageType::REQUEST_CHANGE_ALTITUDE: {
-                        msg_change_heading* altitude_data = reinterpret_cast<msg_change_heading*>(receivedMsg->data.data());
+                        msg_change_heading* altitudeData = reinterpret_cast<msg_change_heading*>(receivedMsg->data.data());
                         std::cout << "Aircraft " << id << " received altitude change command\n";
-                        std::cout << "  New altitude: Z=" << altitude_data->altitude << "\n";
-
-                        // Apply the altitude change
-                        posZ = altitude_data->altitude;
-
+                        std::cout << "  New altitude: Z=" << altitudeData->altitude << "\n";
+                        posZ = altitudeData->altitude;
                         std::cout << "Aircraft " << id << " altitude updated to " << posZ << "\n";
-
-                        // Reply to acknowledge
                         MsgReply(rcvid, 0, NULL, 0);
                         break;
                     }
-                    // if this is printed out its usually because communications system channel didn't send properly
+
                     default:
-                        std::cerr << "Aircraft " << id << " received unknown inter-process message type: " << static_cast<int>(receivedMsg->type) << "\n";
+                        std::cerr << "Aircraft " << id << " received unknown inter-process message type: "
+                                  << static_cast<int>(receivedMsg->type) << "\n";
                         MsgReply(rcvid, -1, NULL, 0);
                         break;
                 }
-            } else {  // from Radar
-            	// Message is recast to type Message
-            	Message* receivedMsg = reinterpret_cast<Message*>(buffer);
+            } else {
+                // Message from Radar requesting position
+                Message* receivedMsg = reinterpret_cast<Message*>(buffer);
 
-            	if (receivedMsg->type == MessageType::REQUEST_POSITION) {
-            		msg_plane_info positionData = {id, posX, posY, posZ, speedX, speedY, speedZ};
-            	    Message posUpdateMessage = createPositionUpdateMessage(id, positionData);
-
-            	    MsgReply(rcvid, 0, &posUpdateMessage, sizeof(posUpdateMessage)); // Send reply with position
-            	}
+                if (receivedMsg->type == MessageType::REQUEST_POSITION) {
+                    msg_plane_info positionData = {id, posX, posY, posZ, speedX, speedY, speedZ};
+                    Message posUpdateMsg = createPositionUpdateMessage(id, positionData);
+                    MsgReply(rcvid, 0, &posUpdateMsg, sizeof(posUpdateMsg));
+                }
             }
         }
 
-        // Wait for the next time step
         timer.waitTimer();
     }
 
-    name_detach(Plane_channel, 0);
+    name_detach(planeChannel, 0);
     pthread_exit(NULL);
 
     return 0;
 }
 
-
 int Aircraft::getArrivalTime() {
-	return arrivalTime;
+    return arrivalTime;
 }
 
-int Aircraft::getID(){
-	return id;
+int Aircraft::getID() {
+    return id;
 }
 
-//Coen320_Lab3 (Task2): look at the message creation example here
-Message Aircraft::createEnterAirspaceMessage(int planeID){
-	Message msg;
-	msg.type = MessageType::ENTER_AIRSPACE;
-	msg.planeID = planeID;
-	msg.data = 	NULL;  // Allocate dynamically and copy info data
-	return msg;
-}
-
-//Coen320_Lab3(Task3): complete the createPositionUpdateMessage function with what you learned above
-Message Aircraft::createExitAirspaceMessage(int planeID){ // done?
-
-	Message msg;
-	msg.type = MessageType::EXIT_AIRSPACE; // Use the correct Message type
-	msg.planeID = planeID ;// Use the passed Plane ID
-	msg.data = NULL;
-
-	return msg;
-}
-//Coen320_Lab3(Task4): complete the createPositionUpdateMessage function with what you learned above
-Message Aircraft::createPositionUpdateMessage(int planeID, const msg_plane_info& info) { //done?
-
+Message Aircraft::createEnterAirspaceMessage(int planeID) {
     Message msg;
-    msg.type =MessageType::POSITION_UPDATE; // Use the correct Message type
-    msg.planeID = planeID ;// Use the passed Plane ID
-    msg.data = (void*)&info;  // Allocate and copy info data
-
+    msg.type = MessageType::ENTER_AIRSPACE;
+    msg.planeID = planeID;
+    msg.data = NULL;
     return msg;
+}
 
+Message Aircraft::createExitAirspaceMessage(int planeID) {
+    Message msg;
+    msg.type = MessageType::EXIT_AIRSPACE;
+    msg.planeID = planeID;
+    msg.data = NULL;
+    return msg;
+}
+
+Message Aircraft::createPositionUpdateMessage(int planeID, const msg_plane_info& info) {
+    Message msg;
+    msg.type = MessageType::POSITION_UPDATE;
+    msg.planeID = planeID;
+    msg.data = (void*)&info;
+    return msg;
 }

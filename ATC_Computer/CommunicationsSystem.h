@@ -8,13 +8,13 @@
 
 class CommunicationsSystem {
 public:
-	CommunicationsSystem();
-	~CommunicationsSystem();
-private:
-    void HandleCommunications();
-    void messageAircraft(const Message_inter_process& msg);
-    std::thread Communications_System;
-};
+    CommunicationsSystem();
+    ~CommunicationsSystem();
 
+private:
+    void handleCommunications();
+    void messageAircraft(const Message_inter_process& msg);
+    std::thread communicationsThread;
+};
 
 #endif /* SRC_COMMUNICATIONSSYSTEM_H_ */

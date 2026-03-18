@@ -11,11 +11,12 @@
 #include <chrono>
 #include <vector>
 
+#include "Msg_structs.h"
+
+// Collision detection distance constraints
 const double CONSTRAINT_X = 3000;
 const double CONSTRAINT_Y = 3000;
 const double CONSTRAINT_Z = 1000;
-
-#include "Msg_structs.h"
 
 class ComputerSystem {
 public:
@@ -30,28 +31,19 @@ private:
     bool initializeSharedMemory();
     void cleanupSharedMemory();
 
-    //Collsion detection
+    // Collision detection
     void checkCollision(uint64_t currentTime, std::vector<msg_plane_info> planes);
     bool checkAxes(msg_plane_info plane1, msg_plane_info plane2);
-    bool sameSpeed(double peed1, double speed2);
 
-    //Handle messages from operator
-    void processMessage();
-    void sendMessagesToComms(const Message& msg);
-    void handleTimeConstraintChange(const Message& msg);
+    // IPC communication
     void sendCollisionToDisplay(const Message_inter_process& msg);
 
     int timeConstraintCollisionFreq = 180;
 
-
-
-    int shm_fd;
-    SharedMemory* shared_mem;
+    int shmFd;
+    SharedMemory* sharedMem;
     std::thread monitorThread;
-    std::thread monitorOperatorInput;
     std::atomic<bool> running;
-
-    bool listen = true;
 };
 
 #endif // COMPUTER_SYSTEM_H

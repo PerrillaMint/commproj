@@ -8,16 +8,14 @@
 
 class OperatorConsole {
 public:
-	OperatorConsole();
+    OperatorConsole();
     ~OperatorConsole();
 
 private:
-    void HandleConsoleInputs();
+    void handleConsoleInputs();
     void logCommand(const std::string& command);
-    std::thread Operator_Console;
-    bool exit = false;
+    std::thread consoleThread;
+    bool exitRequested = false;
 };
-
-
 
 #endif /* OPERATORCONSOLE_H_ */

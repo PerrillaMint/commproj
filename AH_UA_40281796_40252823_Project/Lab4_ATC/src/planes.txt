@@ -34,3 +34,9 @@
 
 # Plane 6 - Arrives at 25 seconds, moves very slowly southeast
 25 6 40000 60000 32000 30 -30 0
+
+#Plane 7 (test crash with plane 1, 2sec later) 
+30 7 51700 50000 25000 -50 0 0 
+
+
+

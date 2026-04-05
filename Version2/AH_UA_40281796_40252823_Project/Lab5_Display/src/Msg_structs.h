@@ -1,5 +1,4 @@
 #pragma once
-#include <atomic>
 #include <array>
 
 enum class MessageType {
@@ -39,13 +38,13 @@ typedef struct {
     double x, y, z;
 } msg_change_position;
 
-// Shared memory structure - MUST match Radar's SharedMemory
+// Shared memory structure - MUST match Radar's SharedMemory exactly
 struct SharedMemory {
     msg_plane_info plane_data[100];
-    int count;  // Keep track of the number of planes in the buffer
-    std::atomic<bool> is_empty;  // Flag to indicate if there are no planes
+    int count;              // Number of planes in the buffer
+    volatile bool is_empty; // Plain volatile bool - safe for cross-process shared memory
     bool start;
-    uint64_t timestamp;  // Timestamp of the last write
+    uint64_t timestamp;     // Timestamp of the last write
 };
 
 struct Message_inter_process {
@@ -53,5 +52,5 @@ struct Message_inter_process {
     MessageType type;
     int planeID;
     std::array<char, 256> data;  // Message data buffer
-    size_t dataSize;  // Size of the serialized data
+    size_t dataSize;             // Size of the serialized data
 };

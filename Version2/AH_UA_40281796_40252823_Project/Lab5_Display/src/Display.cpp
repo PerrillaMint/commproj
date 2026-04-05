@@ -163,13 +163,15 @@ void Display::displayAircraft() {
     ATCTimer timer(DISPLAY_INTERVAL_SEC, 0);
     std::cout << "Display: Aircraft display thread started\n";
 
-    while (running && sharedMem->is_empty.load()) {
+    // Wait until planes are present - plain bool read, no .load()
+    while (running && sharedMem->is_empty) {
         std::cout << "Display: Waiting for aircraft to enter airspace...\n";
         timer.waitTimer();
     }
 
     while (running) {
-        if (sharedMem->is_empty.load()) {
+        // Plain bool read, no .load()
+        if (sharedMem->is_empty) {
             std::cout << "\n=== AIRSPACE EMPTY - ALL AIRCRAFT HAVE DEPARTED ===\n";
             running = false;
             break;
@@ -241,7 +243,6 @@ void Display::printAirspaceGrid(const std::vector<msg_plane_info>& planes) {
     std::cout << "\n";
 }
 
-// Spec: Store the airspace in a history file every 30 seconds
 void Display::logAirspaceHistory(const std::vector<msg_plane_info>& planes, uint64_t timestamp) {
     if (!historyFile.is_open()) return;
 

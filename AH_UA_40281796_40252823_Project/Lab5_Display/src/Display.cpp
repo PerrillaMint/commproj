@@ -201,7 +201,7 @@ void Display::printAirspaceGrid(const std::vector<msg_plane_info>& planes) {
     std::lock_guard<std::mutex> lock(collisionMutex);
 
     uint64_t currentTime = sharedMem->timestamp;
-    if (!planesInCollision.empty() && (currentTime - lastCollisionTime) > 2) {
+    if (!planesInCollision.empty() && (currentTime - lastCollisionTime) > DISPLAY_INTERVAL_SEC + 2) {
         planesInCollision.clear();
         collisionPairs.clear();
     }

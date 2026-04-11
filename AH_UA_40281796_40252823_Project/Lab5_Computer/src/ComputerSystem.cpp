@@ -112,9 +112,6 @@ void ComputerSystem::monitorAirspace() {
 
         if (plane_data_vector.size() > 1)
             checkCollision(timestamp, plane_data_vector);
-        else
-            //std::cout << "No collision possible with single plane\n";
-
         timer.waitTimer();
     }
 
